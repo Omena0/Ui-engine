@@ -1,14 +1,16 @@
 import pygame
 from typing import Callable
 pygame.init()
-pygame.threads.init(32)
+pygame.threads.init(8)
 
 clock = pygame.time.Clock()
 
 window = None
 focus  = None
 
-frame = 0
+frame = -1 # -1 cuz we increase before we process anything
+
+a = 0 # Counter used for testing
 
 class Frame:
     def __init__(
@@ -46,7 +48,8 @@ class Frame:
 
     def event(self, event):
         for child in self.children:
-            child.event(event)
+            if hasattr(child,'event'):
+                child.event(event)
 
     def addChild(self, child):
         x = max(child.x, self.x)
@@ -63,6 +66,11 @@ class Frame:
             self.children.append(child)
         return self
 
+    def tick(self,frame):
+        for child in self.children:
+            if hasattr(child,'tick'):
+                child.tick(frame)
+    
     def render(self):
         if not self.visible: return self
         for child in self.children:
@@ -77,7 +85,15 @@ class Frame:
         return self
 
 class Text:
-    def __init__(self, position, text, size, color=(255, 255, 255), font='Roboto'):
+    def __init__(
+            self,
+            position,
+            text,
+            size,
+            color=(255, 255, 255),
+            font='Roboto'
+        ):
+        
         self.parent = None
         
         # Style
@@ -121,9 +137,6 @@ class Text:
         parent.addChild(self)
         return self
 
-    def event(self, event):
-        pass
-
 class Button:
     def __init__(
             self,
@@ -136,6 +149,7 @@ class Button:
             color=(200, 200, 200),
             hover_color=(150, 150, 150),
             font_color=(255, 255, 255),
+            corner_radius=10,
             font='Roboto'
         ):
         self.parent = None
@@ -151,6 +165,7 @@ class Button:
         self.font_color = font_color
         self.font = font
         self.hovered = False
+        self.cornerRadius = corner_radius
         
         # Position
         self.pos = position
@@ -189,6 +204,8 @@ class Button:
             window.disp,
             color,
             (self.abs_x, self.abs_y, self.width, self.height),
+            0,
+            self.cornerRadius
         )
         font = pygame.font.SysFont(self.font, self.size)
         text = font.render(self.text, 1, self.font_color)
@@ -209,6 +226,101 @@ class Button:
         if event.type == pygame.MOUSEBUTTONDOWN and self.hovered:
             self.action()
 
+class CheckBox:
+    def __init__(
+            self,
+            position,
+            width,
+            height,
+            color=(56,56,56),
+            hover_color=(70,70,70),
+            check_color=(120,120,120),
+            corner_radius=3,
+            checked:bool=False,
+            action:Callable=None
+    ):
+        self.parent = None
+        self.action = action
+
+        # Position
+        self.pos = position
+        self.x = position[0]
+        self.y = position[1]
+        self.abs_pos = self.pos
+        self.abs_x = self.x
+        self.abs_y = self.y
+        
+        # Style
+        self.width = width
+        self.height = height
+        self.color = color
+        self.hoverColor = hover_color
+        self.checkColor = check_color
+        self.corner_radius = corner_radius
+        self.checked = checked
+        self.hovered = False
+
+        # Rendering
+        self.layer = 0
+        self.visible = True
+
+    def setPos(self, x, y):
+        self.pos = x, y
+        self.x = x
+        self.y = y
+        self.abs_x = x + self.parent.abs_x
+        self.abs_y = y + self.parent.abs_y
+        self.abs_pos = self.abs_x, self.abs_y
+        return self
+
+    def toggle(self):
+        self.checked = not self.checked
+        if self.action:
+            self.action(self.checked)
+
+    def render(self):
+        if not self.visible: return self
+
+        color = self.hoverColor if self.hovered else self.color
+        
+        pygame.draw.rect(
+            window.disp,
+            color,
+            (self.abs_x, self.abs_y, self.width, self.height),
+            0,
+            self.corner_radius
+        )
+
+        if self.checked:
+            pygame.draw.rect(
+                window.disp,
+                self.checkColor,
+                (self.abs_x+self.width/8, self.abs_y+self.width/8, self.width-self.width/4+1, self.height-self.width/4+1),
+                0,
+                self.corner_radius
+            )
+        return self
+
+    def checkHovered(self):
+        x, y = pygame.mouse.get_pos()
+        self.hovered = (
+            x in range(self.abs_x, self.abs_x + self.width)
+            and y in range(self.abs_y, self.abs_y + self.height)
+        )
+        return self.hovered
+
+    def add(self, parent, layer=0):
+        self.layer = layer
+        self.parent = parent
+        self.setPos(self.x, self.y)
+        parent.addChild(self)
+        return self
+
+    def event(self, event):
+        self.checkHovered()
+        if event.type == pygame.MOUSEBUTTONDOWN and self.hovered:
+            self.toggle()
+
 class TextBox:
     def __init__(
             self,
@@ -222,9 +334,10 @@ class TextBox:
             font_color =(255,255,255),
             font="Roboto",
             text="",
-            on_type=None,
+            action=None,
         ):
         self.parent = None
+        self.action = action
         
         # Style
         self.color = color
@@ -235,7 +348,6 @@ class TextBox:
         self.width = width
         self.height = height
         self.font = font
-        self.callback = on_type
         self.text = text
         self.hovered = False
         
@@ -285,6 +397,8 @@ class TextBox:
 
         pygame.draw.rect(window.disp,color,(self.abs_x, self.abs_y, self.width, self.height))
         font = pygame.font.SysFont(self.font, self.size)
+        
+        # Blinking cursor (i love this lmao)
         a = f'{self.text}|' if focus == self and frame//20 % 2 == 0 else self.text
         text = font.render(a, 1, self.fontColor)
 
@@ -292,6 +406,7 @@ class TextBox:
         y = self.abs_y + (self.height - text.get_height()) // 2
         window.disp.blit(text, (x, y))
 
+    def tick(self,frame):
         # Key repeat timer
         if self.pressed: self.repeat_timer += 1
         if not self.repeating and self.repeat_timer > self.repeat_delay:
@@ -312,6 +427,10 @@ class TextBox:
             else:
                 self.text += self.pressed
             self.repeat_timer = 0
+            
+            # Autorepeat calls action :)
+            if self.action:
+                self.action(self.text)
 
         return self
 
@@ -339,8 +458,8 @@ class TextBox:
                 else:
                     self.text += event.unicode
                     self.pressed = event.unicode
-                if self.callback:
-                    self.callback(self.text)
+                if self.action:
+                    self.action(self.text)
 
         elif event.type == pygame.KEYUP:
             if focus == self:
@@ -397,11 +516,134 @@ class Image:
         parent.addChild(self)
         return self
 
-    def event(self, event):
-        pass
+class ProgressBar:
+    def __init__(
+            self,
+            position,
+            width,
+            height,
+            color=(30,85,230),
+            border_color=(56,56,56),
+            border_radius=4,
+            corner_radius=4,
+            speed=0
+        ):
+        
+        self.parent = None
+        
+        # Style
+        self.color = color
+        self.borderColor = border_color
+        self.borderRadius = border_radius
+        self.cornerRadius = corner_radius
+        
+        # Position
+        self.pos = position
+        self.x = position[0]
+        self.y = position[1]
+        self.abs_pos = self.pos
+        self.abs_x = self.x
+        self.abs_y = self.y
+        self.width = width
+        self.height = height
+        
+        # Rendering
+        self.layer = 0
+        self.visible = True
+        
+        # Progress
+        self.progress   = 0              # ProgressBar state (0-1)
+        self.max        = 1              # Max (0-1)
+        self.completed  = 0              # Current (0-1)
+        self.speed      = speed/10000    # How much to increase/tick
+        self.started    = False          # Should we increase?
+        self.halted     = False          # Should we increase? (if set progress < current progress)
+        self.shouldHalt = True           # Should halt (set externally)
+        self.realProg   = 0              # The last progress value sent to us
+        self.tolerance  = 0.3            # Largest difference between prog (smoothed) and realProg can be before we halt
 
-class Window:
-    def __init__(self, title="", bg=(100, 100, 100)):
+    def setPos(self, x, y):
+        self.pos = x, y
+        self.x = x
+        self.y = y
+        self.abs_x = x + self.parent.abs_x
+        self.abs_y = y + self.parent.abs_y
+        self.abs_pos = self.abs_x, self.abs_y
+        return self
+
+    def tick(self,frame):
+        global a
+
+        if self.started and not self.halted:
+            # Dynamically adjust the speed of the progress bar depending on
+            # how far away we are from the last datapoint (realProg)
+            # Im really fucking proud of making a better progressbar than tkinter lmao
+            speed = round(self.speed - max(self.progress-self.realProg,0)/100,5)
+
+            self.progress += speed
+
+        #print(f'Speed: {speed}')
+        #print(f'Smooth: {self.progress} Real: {self.realProg}')
+        
+        # Run this shit to check if we should halt (for next frame)
+        self.setProgress(self.completed,self.max)
+
+    def render(self):
+        if not self.visible: return self
+        pygame.draw.rect(
+            window.disp,
+            self.borderColor,
+            pygame.Rect(self.abs_x,self.abs_y,self.width,self.height),
+            self.borderRadius,
+            self.cornerRadius
+        )
+        pygame.draw.rect(
+            window.disp,
+            self.color,
+            pygame.Rect(
+                self.abs_x+self.borderRadius,
+                self.abs_y+self.borderRadius,
+                min(max((self.width-self.borderRadius*2)*(self.progress),0),self.width-self.borderRadius*2),
+                self.height-self.borderRadius*2
+            ),
+            0,
+            self.cornerRadius//2
+        )
+        
+        return self
+    
+    def start(self):
+        self.started = True
+        
+    def stop(self):
+        self.started = False
+    
+    def setProgress(self,completed,max_=100):
+        self.max = max_
+        self.completed = completed
+        
+        progress = (self.completed/self.max)
+
+        self.halted = self.progress > progress+self.tolerance and self.shouldHalt
+        self.realProg = progress
+        
+        # only lets you decrease progress if not started.
+        self.progress = round(max(self.progress, progress) if self.started else progress,5)
+
+    def add(self, parent, layer=0):
+        self.layer = layer
+        self.parent = parent
+        self.setPos(self.x, self.y)
+        parent.addChild(self)
+        return self
+
+class Root:
+    def __init__(
+            self,
+            title="",
+            bg=(100, 100, 100)
+        ):
+        
         global window
         self.setTitle(title)
         self.res = (600, 500)
@@ -445,9 +687,13 @@ class Window:
         else:
             self.children.append(child)
 
-    def render(self):
+    def tick(self):
         global frame
-        frame += 1
+        for child in self.children:
+            if hasattr(child,'tick'):
+                child.tick(frame)
+    
+    def render(self):
         pygame.display.set_caption(f'{self.title} | FPS: {clock.get_fps()//1}')
         self.disp.fill(self.bgColor)
         for component in self.children:
@@ -461,27 +707,32 @@ class Window:
             self.disp = pygame.display.set_mode(
                 self.res, flags=self.disp.get_flags()
             )
-        for i in self.children:
-            i.event(event)
+        for child in self.children:
+            if hasattr(child,'event'):
+                child.event(event)
 
 
 def update():
+    global frame
     try:
+        frame += 1
+        window.tick()
         window.render()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
             window.event(event)
+        clock.tick(120)
         return window
     except Exception as e:
         print(e)
+        if debug: raise e
         return None
 
+debug = False
+
 def mainloop():
-    while True:
-        a = update()
-        clock.tick(120)
-        if not a: break
+    while update(): ...
 
 
 
