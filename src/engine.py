@@ -1,88 +1,21 @@
 import pygame
 from typing import Callable
 pygame.init()
-pygame.threads.init(8)
+pygame.threads.init()
 
 clock = pygame.time.Clock()
 
-window = None
+# Basic
+root   = None
 focus  = None
 
+# Tabs
+tab  = 0
+tabs = 0
+
+# Counters
 frame = -1 # -1 cuz we increase before we process anything
-
-a = 0 # Counter used for testing
-
-class Frame:
-    def __init__(
-        self,
-        position,
-        width,
-        height
-    ):
-        self.children = []
-        self.parent = None
-        
-        # Position
-        self.pos = position
-        self.x = position[0]
-        self.y = position[1]
-        self.abs_pos = self.pos
-        self.abs_x = self.x
-        self.abs_y = self.y
-        self.pos2 = width, height
-        self.width = width
-        self.height = height
-        
-        # Rendering
-        self.layer = 0
-        self.visible = True
-
-    def setPos(self, x, y):
-        self.pos = x, y
-        self.x = x
-        self.y = y
-        self.abs_x = x + self.parent.abs_x
-        self.abs_y = y + self.parent.abs_y
-        self.abs_pos = self.abs_x, self.abs_y
-        return self
-
-    def event(self, event):
-        for child in self.children:
-            if hasattr(child,'event'):
-                child.event(event)
-
-    def addChild(self, child):
-        x = max(child.x, self.x)
-        x = min(child.x, self.x + self.width)
-        y = max(child.y, self.y)
-        y = min(child.y, self.y + self.height)
-        child.setPos(x, y)
-        if self.children:
-            for i, c in enumerate(self.children):
-                if child.layer <= c.layer:
-                    self.children.insert(i, child)
-                    break
-        else:
-            self.children.append(child)
-        return self
-
-    def tick(self,frame):
-        for child in self.children:
-            if hasattr(child,'tick'):
-                child.tick(frame)
-    
-    def render(self):
-        if not self.visible: return self
-        for child in self.children:
-            child.render()
-        return self
-
-    def add(self, parent, layer=0):
-        self.layer = layer
-        self.parent = parent
-        self.setPos(self.x, self.y)
-        parent.addChild(self)
-        return self
+a     = 0  # Counter used for testing
 
 class Text:
     def __init__(
@@ -124,11 +57,10 @@ class Text:
         return self
 
     def render(self):
-        if not self.visible: return self
+        if not self.visible: return
         font = pygame.font.SysFont(self.font, self.size)
         text = font.render(self.text, 1, self.color)
-        window.disp.blit(text, (self.abs_x, self.abs_y))
-        return self
+        root.disp.blit(text, (self.abs_x, self.abs_y))
 
     def add(self, parent, layer=0):
         self.layer = layer
@@ -140,7 +72,7 @@ class Text:
 class Button:
     def __init__(
             self,
-            position:tuple[int,int,int],
+            position:tuple[int,int],
             width:int,
             height:int,
             text:str,
@@ -165,7 +97,7 @@ class Button:
         self.font_color = font_color
         self.font = font
         self.hovered = False
-        self.cornerRadius = corner_radius
+        self.corner_radius = corner_radius
         
         # Position
         self.pos = position
@@ -197,21 +129,20 @@ class Button:
         return self.hovered
 
     def render(self):
-        if not self.visible: return self
-        self.checkHovered()
+        
         color = self.color if self.hovered else self.hoverColor
         pygame.draw.rect(
-            window.disp,
+            root.disp,
             color,
             (self.abs_x, self.abs_y, self.width, self.height),
             0,
-            self.cornerRadius
+            self.corner_radius
         )
         font = pygame.font.SysFont(self.font, self.size)
         text = font.render(self.text, 1, self.font_color)
         x = self.abs_x + (self.width - text.get_width()) // 2
         y = self.abs_y + (self.height - text.get_height()) // 2
-        window.disp.blit(text, (x, y))
+        root.disp.blit(text, (x, y))
         return self
 
     def add(self, parent, layer=0):
@@ -222,9 +153,12 @@ class Button:
         return self
 
     def event(self, event):
-        self.checkHovered()
         if event.type == pygame.MOUSEBUTTONDOWN and self.hovered:
             self.action()
+
+    def tick(self,frame):
+        # CheckHovered every second frame (performance)
+        self.checkHovered()
 
 class CheckBox:
     def __init__(
@@ -279,12 +213,12 @@ class CheckBox:
             self.action(self.checked)
 
     def render(self):
-        if not self.visible: return self
+        
 
         color = self.hoverColor if self.hovered else self.color
         
         pygame.draw.rect(
-            window.disp,
+            root.disp,
             color,
             (self.abs_x, self.abs_y, self.width, self.height),
             0,
@@ -293,7 +227,7 @@ class CheckBox:
 
         if self.checked:
             pygame.draw.rect(
-                window.disp,
+                root.disp,
                 self.checkColor,
                 (self.abs_x+self.width/8, self.abs_y+self.width/8, self.width-self.width/4+1, self.height-self.width/4+1),
                 0,
@@ -316,8 +250,11 @@ class CheckBox:
         parent.addChild(self)
         return self
 
-    def event(self, event):
+    def tick(self,frame):
+        # CheckHovered every second tick (performance)
         self.checkHovered()
+
+    def event(self, event):
         if event.type == pygame.MOUSEBUTTONDOWN and self.hovered:
             self.toggle()
 
@@ -332,6 +269,7 @@ class TextBox:
             focus_color=(175,175,175),
             hover_color=(150,150,150),
             font_color =(255,255,255),
+            corner_radius=8,
             font="Roboto",
             text="",
             action=None,
@@ -344,6 +282,7 @@ class TextBox:
         self.focusColor = focus_color
         self.hoverColor = hover_color
         self.fontColor  = font_color
+        self.corner_radius = corner_radius
         self.size = size
         self.width = width
         self.height = height
@@ -389,24 +328,37 @@ class TextBox:
 
     def render(self):
         global frame
-        if not self.visible: return self
+        
         # Render
-        self.checkHovered()
         color = self.color if self.hovered else self.hoverColor
         if focus == self: color = self.focusColor
 
-        pygame.draw.rect(window.disp,color,(self.abs_x, self.abs_y, self.width, self.height))
-        font = pygame.font.SysFont(self.font, self.size)
-        
-        # Blinking cursor (i love this lmao)
-        a = f'{self.text}|' if focus == self and frame//20 % 2 == 0 else self.text
-        text = font.render(a, 1, self.fontColor)
+        pygame.draw.rect(
+            root.disp,
+            color,
+            pygame.Rect(
+                self.abs_x,
+                self.abs_y,
+                self.width,
+                self.height
+            ),
+            0,
+            self.corner_radius
+        )
+        if self.text:
+            font = pygame.font.SysFont(self.font, self.size)
 
-        x = self.abs_x + 5
-        y = self.abs_y + (self.height - text.get_height()) // 2
-        window.disp.blit(text, (x, y))
+            # Blinking cursor (i love this lmao)
+            a = f'{self.text}|' if focus == self and frame//20 % 2 == 0 else self.text
+            text = font.render(a, 1, self.fontColor)
+
+            x = self.abs_x + 5
+            y = self.abs_y + (self.height - text.get_height()) // 2
+            root.disp.blit(text, (x, y))
 
     def tick(self,frame):
+        # CheckHovered every second tick (perf)
+        self.checkHovered()
         # Key repeat timer
         if self.pressed: self.repeat_timer += 1
         if not self.repeating and self.repeat_timer > self.repeat_delay:
@@ -443,7 +395,6 @@ class TextBox:
 
     def event(self, event):
         global focus
-        self.checkHovered()
 
         # Text input
         if event.type == pygame.KEYDOWN:
@@ -505,8 +456,8 @@ class Image:
         return self
 
     def render(self):
-        if not self.visible: return self
-        window.disp.blit(self.image, (self.abs_x, self.abs_y))
+        
+        root.disp.blit(self.image, (self.abs_x, self.abs_y))
         return self
 
     def add(self, parent, layer=0):
@@ -535,7 +486,7 @@ class ProgressBar:
         self.color = color
         self.borderColor = border_color
         self.borderRadius = border_radius
-        self.cornerRadius = corner_radius
+        self.corner_radius = corner_radius
         
         # Position
         self.pos = position
@@ -555,7 +506,7 @@ class ProgressBar:
         self.progress   = 0              # ProgressBar state (0-1)
         self.max        = 1              # Max (0-1)
         self.completed  = 0              # Current (0-1)
-        self.speed      = speed/10000    # How much to increase/tick
+        self.speed      = speed/5000    # How much to increase/tick
         self.started    = False          # Should we increase?
         self.halted     = False          # Should we increase? (if set progress < current progress)
         self.shouldHalt = True           # Should halt (set externally)
@@ -589,16 +540,16 @@ class ProgressBar:
         self.setProgress(self.completed,self.max)
 
     def render(self):
-        if not self.visible: return self
+        
         pygame.draw.rect(
-            window.disp,
+            root.disp,
             self.borderColor,
             pygame.Rect(self.abs_x,self.abs_y,self.width,self.height),
             self.borderRadius,
-            self.cornerRadius
+            self.corner_radius
         )
         pygame.draw.rect(
-            window.disp,
+            root.disp,
             self.color,
             pygame.Rect(
                 self.abs_x+self.borderRadius,
@@ -607,7 +558,7 @@ class ProgressBar:
                 self.height-self.borderRadius*2
             ),
             0,
-            self.cornerRadius//2
+            self.corner_radius//2
         )
         
         return self
@@ -637,6 +588,378 @@ class ProgressBar:
         parent.addChild(self)
         return self
 
+class Slider:
+    def __init__(
+            self,
+            position,
+            width,
+            height,
+            color=(30, 85, 230),
+            handle_color=(56, 56, 56),
+            handle_radius=8,
+            track_color=(200, 200, 200),
+            track_height=4,
+            action:Callable=None
+    ):
+        self.parent = None
+        self.hovered = False
+
+        # Style
+        self.color = color
+        self.handleColor = handle_color
+        self.handleRadius = handle_radius
+        self.trackColor = track_color
+        self.trackHeight = track_height
+
+        # Position
+        self.pos = position
+        self.x = position[0]
+        self.y = position[1]
+        self.abs_pos = self.pos
+        self.abs_x = self.x
+        self.abs_y = self.y
+        self.width = width
+        self.height = height
+
+        # Value
+        self.value = 0
+        self.pressed = False
+        self.action = action
+        
+        # Rendering
+        self.layer = 0
+        self.visible = True
+
+    def setPos(self, x, y):
+        self.pos = x, y
+        self.x = x
+        self.y = y
+        self.abs_x = x + self.parent.abs_x
+        self.abs_y = y + self.parent.abs_y
+        self.abs_pos = self.abs_x, self.abs_y
+        return self
+
+    def render(self):
+        if not self.visible:
+            return self
+
+        # Draw track
+        track_y = self.abs_y + (self.height - self.trackHeight) // 2
+        pygame.draw.rect(
+            root.disp,
+            self.trackColor,
+            pygame.Rect(self.abs_x, track_y, self.width, self.trackHeight)
+        )
+
+        # Calculate handle position
+        handle_x = self.abs_x + (self.width - self.handleRadius * 2) * ((self.value - 0) / (1 - 0))
+
+        # Draw handle
+        handle_y = self.abs_y + (self.height - self.handleRadius * 2) // 2
+        pygame.draw.circle(
+            root.disp,
+            self.handleColor,
+            (int(handle_x + self.handleRadius), int(handle_y + self.handleRadius)),
+            self.handleRadius
+        )
+
+        return self
+
+    def checkHovered(self):
+        x, y = pygame.mouse.get_pos()
+        self.hovered = (
+            x in range(self.abs_x, self.abs_x + self.width)
+            and y in range(self.abs_y, self.abs_y + self.height)
+        )
+        return self.hovered
+
+    def setValue(self, value):
+        self.value = max(0, min(value, 1))
+        if self.action:
+            self.action(self.value)
+
+    def add(self, parent, layer=0):
+        self.layer = layer
+        self.parent = parent
+        self.setPos(self.x, self.y)
+        parent.addChild(self)
+        return self
+
+    def tick(self,frame):
+        # CheckHovered every second tick (performance)
+        self.checkHovered()
+        # Track movement
+        if self.pressed:
+            x = pygame.mouse.get_pos()[0]
+            self.setValue((x-self.abs_x)/self.width)
+
+    def event(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if self.hovered:
+                self.pressed = True
+
+        elif event.type == pygame.MOUSEBUTTONUP:
+            self.pressed = False
+
+class Area:
+    def __init__(
+            self,
+            position,
+            width,
+            height,
+            color=(255, 255, 255),
+            corner_radius=15
+        ):
+        
+        self.parent = None
+        
+        # Style
+        self.color = color
+        self.corner_radius = corner_radius
+        
+        # Position
+        self.pos = position
+        self.x = position[0]
+        self.y = position[1]
+        self.abs_pos = self.pos
+        self.abs_x   = self.x
+        self.abs_y   = self.y
+        self.width   = width
+        self.height  = height
+        
+        # Rendering
+        self.layer = 0
+        self.visible = True
+
+    def setPos(self, x, y):
+        self.pos = x, y
+        self.x = x
+        self.y = y
+        self.abs_x = x + self.parent.abs_x
+        self.abs_y = y + self.parent.abs_y
+        self.abs_pos = self.abs_x, self.abs_y
+        return self
+
+    def render(self):
+        
+        pygame.draw.rect(
+            root.disp,
+            self.color,
+            pygame.Rect(
+                self.abs_x,self.abs_y,self.width,self.height
+            ),
+            0,
+            self.corner_radius
+        )
+        return self
+
+    def add(self, parent, layer=0):
+        self.layer = layer
+        self.parent = parent
+        self.setPos(self.x, self.y)
+        parent.addChild(self)
+        return self
+
+class Line:
+    def __init__(
+            self,
+            from_:tuple[int,int],
+            to:tuple[int,int],
+            color=(255, 255, 255)
+        ):
+        
+        self.parent = None
+        
+        # Style
+        self.color = color
+        
+        # Position
+        self.from_ = from_
+        self.to    = to
+        
+        ## Shit that might have to exist for it to work smh
+        self.x       = from_[0]
+        self.y       = from_[1]
+        self.abs_pos = from_
+        self.abs_x   = from_[0]
+        self.abs_y   = from_[1]
+        
+        # Rendering
+        self.layer = 0      # Set in .add()
+        self.visible = True
+
+    def setPos(self, from_,to):
+        self.from_ = from_
+        self.to = to
+        self.x = from_[0]
+        self.y = from_[1]
+        self.pos = self.x,self.y
+        self.abs_x = self.x + self.parent.abs_x
+        self.abs_y = self.y + self.parent.abs_y
+        self.abs_pos = self.abs_x, self.abs_y
+        return self
+
+    def render(self):
+        pygame.draw.line(
+            root.disp,
+            self.color,
+            self.from_,
+            self.to,
+            self.width
+        )
+        return self
+
+    def add(self, parent, layer=0):
+        self.layer = layer
+        self.parent = parent
+        self.setPos(self.x, self.y)
+        parent.addChild(self)
+        return self
+
+class Tab:
+    def __init__(self):
+        global tab, tabs
+        self.children = []
+        self.parent = None
+        self.id = tabs
+        tabs += 1
+        
+        # Position
+        self.x = 0
+        self.y = 0
+        self.abs_x = 0
+        self.abs_y = 0
+        self.width = root.width
+        self.height = root.height
+        
+        # Rendering
+        self.visible = False
+        self.layer = 100
+
+    def event(self, event):
+        for child in self.children:
+            if hasattr(child,'event') and child.visible:
+                child.event(event)
+
+    def addChild(self, child):
+        child.setPos(child.x,child.y)
+        if self.children:
+            for i, c in enumerate(self.children):
+                if child.layer <= c.layer:
+                    self.children.insert(i, child)
+                    break
+            else:
+                self.children.append(child)
+        else:
+            self.children.append(child)
+        return self
+
+    def tick(self,frame):
+        global tab, tabs
+        # Set visibility
+        self.visible = (tab == self.id)
+        if not self.visible: return
+        
+        for child in self.children:
+            if hasattr(child,'tick'):
+                child.tick(frame)
+    
+    def setPos(self, x, y):
+        self.pos = x, y
+        self.x = x
+        self.y = y
+        self.abs_x = x + self.parent.abs_x
+        self.abs_y = y + self.parent.abs_y
+        self.abs_pos = self.abs_x, self.abs_y
+        return self
+
+    def render(self): 
+        for child in self.children:
+            if child.visible:
+                child.render()
+        return self
+
+    def add(self, parent, layer=0):
+        self.layer = layer
+        self.parent = parent
+        self.setPos(self.x, self.y)
+        parent.addChild(self)
+        return self
+
+class Frame:
+    def __init__(
+        self,
+        position,
+        width,
+        height
+    ):
+        self.children = []
+        self.parent = None
+        
+        # Position
+        self.pos = position
+        self.x = position[0]
+        self.y = position[1]
+        self.abs_pos = self.pos
+        self.abs_x = self.x
+        self.abs_y = self.y
+        self.pos2 = width, height
+        self.width = width
+        self.height = height
+        
+        # Rendering
+        self.layer = 0
+        self.visible = True
+
+    def setPos(self, x, y):
+        self.pos = x, y
+        self.x = x
+        self.y = y
+        self.abs_x = x + self.parent.abs_x
+        self.abs_y = y + self.parent.abs_y
+        self.abs_pos = self.abs_x, self.abs_y
+        return self
+
+    def event(self, event):
+        for child in self.children:
+            if hasattr(child,'event') and child.visible:
+                child.event(event)
+
+    def addChild(self, child):
+        x = max(child.x, self.x)
+        x = min(child.x, self.x + self.width)
+        y = max(child.y, self.y)
+        y = min(child.y, self.y + self.height)
+        child.setPos(x, y)
+        if self.children:
+            for i, c in enumerate(self.children):
+                if child.layer <= c.layer:
+                    self.children.insert(i, child)
+                    break
+            else:
+                self.children.append(child)
+        else:
+            self.children.append(child)
+        return self
+
+    def tick(self,frame):
+        for child in self.children:
+            if hasattr(child,'tick'):
+                child.tick(frame)
+    
+    def render(self):
+        for child in self.children:
+            if child.visible:
+                child.render()
+        return self
+
+    def add(self, parent, layer=0):
+        self.layer = layer
+        self.parent = parent
+        self.setPos(self.x, self.y)
+        parent.addChild(self)
+        return self
+
 class Root:
     def __init__(
             self,
@@ -644,7 +967,7 @@ class Root:
             bg=(100, 100, 100)
         ):
         
-        global window
+        global root
         self.setTitle(title)
         self.res = (600, 500)
         self.children = []
@@ -660,44 +983,54 @@ class Root:
         self.abs_y = 0
         self.abs_x = 0
         
-        window = self
+        root = self
 
     def setTitle(self, title):
         self.title = title
         return self
 
+    def setTab(self,tabId):
+        global tab
+        tab = tabId
+
     def show(self, resizable=True):
         flags = pygame.SCALED | (pygame.RESIZABLE if resizable else 0)
         self.disp = pygame.display.set_mode(
-            self.res, flags=flags, depth=32, vsync=1
+            self.res, flags=flags
         )
+        return self
+    
+    def setPos(self, x, y):
+        self.pos = x, y
+        self.x = x
+        self.y = y
+        self.abs_x = x
+        self.abs_y = y
+        self.abs_pos = self.x, self.y
         return self
 
     def addChild(self, child):
-        x = max(child.x, self.x)
-        x = min(child.x, self.x + self.width)
-        y = max(child.y, self.y)
-        y = min(child.y, self.y + self.height)
-        child.setPos(x, y)
+        child.setPos(child.x,child.y)
         if self.children:
             for i, c in enumerate(self.children):
                 if child.layer <= c.layer:
                     self.children.insert(i, child)
                     break
-        else:
-            self.children.append(child)
+            else: self.children.append(child)
+        else: self.children.append(child)
 
     def tick(self):
         global frame
         for child in self.children:
-            if hasattr(child,'tick'):
+            if hasattr(child,'tick') and (child.visible or isinstance(child,Tab)):
                 child.tick(frame)
-    
+
     def render(self):
         pygame.display.set_caption(f'{self.title} | FPS: {clock.get_fps()//1}')
         self.disp.fill(self.bgColor)
-        for component in self.children:
-            component.render()
+        for child in self.children:
+            if child.visible:
+                child.render()
         pygame.display.flip()
         return self
 
@@ -708,22 +1041,23 @@ class Root:
                 self.res, flags=self.disp.get_flags()
             )
         for child in self.children:
-            if hasattr(child,'event'):
+            if hasattr(child,'event') and child.visible:
                 child.event(event)
+
 
 
 def update():
     global frame
     try:
         frame += 1
-        window.tick()
-        window.render()
+        if frame %2 == 0: root.tick()
+        root.render()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
-            window.event(event)
-        clock.tick(120)
-        return window
+            root.event(event)
+        clock.tick()
+        return root
     except Exception as e:
         print(e)
         if debug: raise e
