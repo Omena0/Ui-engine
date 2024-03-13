@@ -1046,7 +1046,7 @@ class Root:
 
 
 
-def update():
+def update():  # sourcery skip: extract-method
     global frame
     try:
         frame += 1
