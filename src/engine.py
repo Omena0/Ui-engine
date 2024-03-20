@@ -1,7 +1,7 @@
 import pygame
 from typing import Callable
 pygame.init()
-pygame.threads.init()
+pygame.threads.init(2)
 
 clock = pygame.time.Clock()
 

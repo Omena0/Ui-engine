@@ -2,6 +2,7 @@ import engine
 from RGBRotate import RGBRotate
 
 root = engine.Root('test')
+root.res = 600,521
 
 tab1 = engine.Tab().add(root,-10)
 tab2 = engine.Tab().add(root,-10)
@@ -19,7 +20,7 @@ txt = engine.Text(
     text='Test',
     size=100,
     color=(255,0,0)
-).add(tab1,1)
+).add(root,10)
 
 button = engine.Button(
     position=(25,100),
@@ -167,7 +168,7 @@ pb1.start()
 root.show()
 
 rgb = RGBRotate()
-rgb.set_hue_rotation(15)
+rgb.set_hue_rotation(7)
 
 a:int = 0
 while engine.update():
