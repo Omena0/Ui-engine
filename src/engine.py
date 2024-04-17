@@ -30,7 +30,7 @@ class Text:
         self.parent = None
         
         # Style
-        self.text = text
+        self.text:str = text
         self.size = size
         self.color = color
         self.font = font
