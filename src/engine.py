@@ -9,13 +9,20 @@ clock = pygame.time.Clock()
 root   = None
 focus  = None
 
+# Used events
+usedEvents = [pygame.MOUSEBUTTONDOWN,pygame.KEYDOWN,pygame.KEYUP,pygame.MOUSEMOTION,pygame.QUIT,pygame.VIDEORESIZE]
+
+# Mouse pos
+x = 0
+y = 0
+
 # Tabs
 tab  = 0
 tabs = 0
 
 # Counters
-frame = -1 # -1 cuz we increase before we process anything
-a     = 0  # Counter used for testing
+frame = -1  # -1 cuz we increase before we process anything
+a     = 0   # Counter used for testing
 
 class Text:
     def __init__(
@@ -121,7 +128,7 @@ class Button:
         return self
 
     def checkHovered(self):
-        x, y = pygame.mouse.get_pos()
+        global x,y
         self.hovered = (
             x in range(self.abs_x, self.abs_x + self.width)
             and y in range(self.abs_y, self.abs_y + self.height)
@@ -236,7 +243,7 @@ class CheckBox:
         return self
 
     def checkHovered(self):
-        x, y = pygame.mouse.get_pos()
+        global x,y
         self.hovered = (
             x in range(self.abs_x, self.abs_x + self.width)
             and y in range(self.abs_y, self.abs_y + self.height)
@@ -322,7 +329,7 @@ class TextBox:
         return self
 
     def checkHovered(self):
-        x, y = pygame.mouse.get_pos()
+        global x,y
         self.hovered = x in range(self.abs_x, self.abs_x + self.width) and y in range(self.abs_y, self.abs_y + self.height)
         return self.hovered
 
@@ -666,7 +673,7 @@ class Slider:
         return self
 
     def checkHovered(self):
-        x, y = pygame.mouse.get_pos()
+        global x,y
         self.hovered = (
             x in range(self.abs_x, self.abs_x + self.width)
             and y in range(self.abs_y, self.abs_y + self.height)
@@ -1034,25 +1041,33 @@ class Root:
         pygame.display.flip()
         return self
 
-    def event(self, event):
+    def event(self, event:pygame.event.Event):
+        global x, y
+        
         if event.type == pygame.VIDEORESIZE:
             self.res = event.size
             self.disp = pygame.display.set_mode(
                 self.res, flags=self.disp.get_flags()
             )
+            return
+        
+        elif event.type == 1024:
+            x,y = event.dict['pos']
+            return
+
         for child in self.children:
             if hasattr(child,'event') and child.visible:
                 child.event(event)
 
 
 
-def update():  # sourcery skip: extract-method
-    global frame
+def update():
+    global frame, eventCount
     try:
         frame += 1
         if frame %2 == 0: root.tick()
         root.render()
-        for event in pygame.event.get():
+        for event in pygame.event.get(usedEvents):
             if event.type == pygame.QUIT:
                 pygame.quit()
             root.event(event)
