@@ -254,9 +254,8 @@ Called every second frame (performance reasons)
 
 ### Code
 
-The code is a bit long, but remember that
-when all the components are minimized
-in vscode, its 10x shorter
+The code is a bit long, but you can collapse
+them in vscode and it'll look alot better.
 
 ```python
 import engine
