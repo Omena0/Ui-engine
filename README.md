@@ -186,11 +186,11 @@ A colored rectangle with rounded corners
 
 #### Attributes
 
-position      - x,y
-width         - int
-height        - int
-color         - r,g,b
-corner_radius - int
+- position      - x,y
+- width         - int
+- height        - int
+- color         - r,g,b
+- corner_radius - int
 
 ### Line
 
@@ -198,9 +198,9 @@ A line from point a to point b.
 
 #### Attributes
 
-from_ - x,y
-to    - x,y
-color - r,g,b
+- from_ - x,y
+- to    - x,y
+- color - r,g,b
 
 ### Tab
 
