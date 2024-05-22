@@ -186,11 +186,11 @@ A colored rectangle with rounded corners
 
 #### Attributes
 
-position      - x,y
-width         - int
-height        - int
-color         - r,g,b
-corner_radius - int
+- position      - x,y
+- width         - int
+- height        - int
+- color         - r,g,b
+- corner_radius - int
 
 ### Line
 
@@ -198,9 +198,9 @@ A line from point a to point b.
 
 #### Attributes
 
-from_ - x,y
-to    - x,y
-color - r,g,b
+- from_ - x,y
+- to    - x,y
+- color - r,g,b
 
 ### Tab
 
@@ -254,9 +254,8 @@ Called every second frame (performance reasons)
 
 ### Code
 
-The code is a bit long, but remember that
-when all the components are minimized
-in vscode, its 10x shorter
+The code is a bit long, but you can collapse
+them in vscode and it'll look alot better.
 
 ```python
 import engine
