@@ -31,7 +31,7 @@ button = engine.Button(
     action=lambda: button.setPos(button.x+10,button.y)
 ).add(tab1,0)
 
-tb = engine.TextBox(
+tb = engine.Textbox(
     position=(25,185),
     width=175,
     height=50,
@@ -53,7 +53,7 @@ pb1_txt = engine.Text(
     size=40
 ).add(tab1)
 
-pb1 = engine.ProgressBar(
+pb1 = engine.Progressbar(
     position=(25,390),
     width=200,
     height=25,
@@ -67,7 +67,7 @@ pb2_txt = engine.Text(
     size=40
 ).add(tab1)
 
-pb2 = engine.ProgressBar(
+pb2 = engine.Progressbar(
     position=(25,455),
     width=200,
     height=25,
@@ -112,7 +112,7 @@ cb1_txt = engine.Text(
     size=30
 ).add(tab1,1)
 
-cb1 = engine.CheckBox(
+cb1 = engine.Checkbox(
     position=(480,50),
     width=50,
     height=50,
@@ -125,7 +125,7 @@ cb2_txt = engine.Text(
     size=30
 ).add(root,1)
 
-cb2 = engine.CheckBox(
+cb2 = engine.Checkbox(
     position=(480,145),
     width=50,
     height=50,

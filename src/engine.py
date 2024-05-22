@@ -24,6 +24,9 @@ tabs = 0
 frame = -1  # -1 cuz we increase before we process anything
 a     = 0   # Counter used for testing
 
+def nothing():
+    """Does nothing"""
+
 class Text:
     def __init__(
             self,
@@ -84,7 +87,7 @@ class Button:
             height:int,
             text:str,
             size:int,
-            action:Callable,
+            action:Callable=nothing,
             color=(200, 200, 200),
             hover_color=(150, 150, 150),
             font_color=(255, 255, 255),
@@ -167,7 +170,7 @@ class Button:
         # CheckHovered every second frame (performance)
         self.checkHovered()
 
-class CheckBox:
+class Checkbox:
     def __init__(
             self,
             position,
@@ -265,7 +268,7 @@ class CheckBox:
         if event.type == pygame.MOUSEBUTTONDOWN and self.hovered:
             self.toggle()
 
-class TextBox:
+class Textbox:
     def __init__(
             self,
             position:tuple[int,int],
@@ -474,7 +477,7 @@ class Image:
         parent.addChild(self)
         return self
 
-class ProgressBar:
+class Progressbar:
     def __init__(
             self,
             position,
@@ -510,7 +513,7 @@ class ProgressBar:
         self.visible = True
         
         # Progress
-        self.progress   = 0              # ProgressBar state (0-1)
+        self.progress   = 0              # Progressbar state (0-1)
         self.max        = 1              # Max (0-1)
         self.completed  = 0              # Current (0-1)
         self.speed      = speed/5000    # How much to increase/tick
@@ -535,7 +538,7 @@ class ProgressBar:
         if self.started and not self.halted:
             # Dynamically adjust the speed of the progress bar depending on
             # how far away we are from the last datapoint (realProg)
-            # Im really fucking proud of making a better progressbar than tkinter lmao
+            # Im really fucking proud of making a better Progressbar than tkinter lmao
             speed = round(self.speed - max(self.progress-self.realProg,0)/100,5)
 
             self.progress += speed
@@ -971,12 +974,13 @@ class Root:
     def __init__(
             self,
             title="",
-            bg=(100, 100, 100)
+            bg=(100, 100, 100),
+            res=(600, 500)
         ):
         
         global root
         self.setTitle(title)
-        self.res = (600, 500)
+        self.res = res
         self.children = []
         
         # Style

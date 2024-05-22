@@ -14,10 +14,10 @@ Fuck compex ass layout managers we have position control :fire:
 - Frame       - Literally just a frame
 - Text        - Literally just text
 - Button      - Text but with a rectangle arround it*
-- TextBox     - You can type shit*
+- Textbox     - You can type shit*
 - Image       - Just displays an image thats it
-- ProgressBar - Best progress bar you've ever seen
-- CheckBox    - A checkbox. Can be on or off thats it.*
+- Progressbar - Best progress bar you've ever seen
+- Checkbox    - A Checkbox. Can be on or off thats it.*
 - Slider      - Just a slider*
 - Tab         - Allows you to make tabs easily
 - Area        - Literally just colored rectangle.
@@ -92,7 +92,7 @@ A button.
 - font          - str (default Roboto)
 - corner_radius - int
 
-### TextBox
+### Textbox
 
 Box that you can type in. Not really advanced but it works.
 
@@ -120,21 +120,21 @@ Basic image.
 - position   - x,y
 - image_path - str
 
-### ProgressBar
+### Progressbar
 
 The best progress bar you have and will ever see.
 
-If you want to smooth the movement of the progressbar,
+If you want to smooth the movement of the Progressbar,
 call .start() when you start the operation.
 
-The progressbar will automatically increase based on the speed attribute,
+The Progressbar will automatically increase based on the speed attribute,
 and slow down when its getting too far
 from the last set value.
 
 It will eventually stop.
 
 You should set the speed attribute to a value where the
-progressbar doesent stop and its speed
+Progressbar doesent stop and its speed
 stays somewhat the same
 
 #### Attributes
@@ -148,9 +148,9 @@ stays somewhat the same
 - corner_radius - int
 - speed         - int
 
-### CheckBox
+### Checkbox
 
-Just a checkbox
+Just a Checkbox
 
 #### Attributes
 
@@ -291,7 +291,7 @@ button = engine.Button(
     action=lambda: button.setPos(button.x+10,button.y)
 ).add(tab1,0)
 
-tb = engine.TextBox(
+tb = engine.Textbox(
     position=(25,185),
     width=175,
     height=50,
@@ -313,7 +313,7 @@ pb1_txt = engine.Text(
     size=40
 ).add(tab1)
 
-pb1 = engine.ProgressBar(
+pb1 = engine.Progressbar(
     position=(25,390),
     width=200,
     height=25,
@@ -327,7 +327,7 @@ pb2_txt = engine.Text(
     size=40
 ).add(tab1)
 
-pb2 = engine.ProgressBar(
+pb2 = engine.Progressbar(
     position=(25,455),
     width=200,
     height=25,
@@ -372,7 +372,7 @@ cb1_txt = engine.Text(
     size=30
 ).add(tab1,1)
 
-cb1 = engine.CheckBox(
+cb1 = engine.Checkbox(
     position=(480,50),
     width=50,
     height=50,
@@ -385,7 +385,7 @@ cb2_txt = engine.Text(
     size=30
 ).add(root,1)
 
-cb2 = engine.CheckBox(
+cb2 = engine.Checkbox(
     position=(480,145),
     width=50,
     height=50,
