@@ -5,12 +5,14 @@ pygame.threads.init(2)
 
 clock = pygame.time.Clock()
 
+
 # Basic
+running = True
 root   = None
 focus  = None
 
 # Used events
-usedEvents = [pygame.MOUSEBUTTONDOWN,pygame.KEYDOWN,pygame.KEYUP,pygame.MOUSEMOTION,pygame.QUIT,pygame.VIDEORESIZE]
+usedEvents = [pygame.MOUSEBUTTONDOWN, pygame.KEYDOWN,pygame.KEYUP, pygame.MOUSEMOTION, pygame.QUIT, pygame.VIDEORESIZE]
 
 # Mouse pos
 x = 0
@@ -139,8 +141,7 @@ class Button:
         return self.hovered
 
     def render(self):
-        
-        color = self.color if self.hovered else self.hoverColor
+        color = self.color if not self.hovered else self.hoverColor
         pygame.draw.rect(
             root.disp,
             color,
@@ -775,13 +776,15 @@ class Line:
             self,
             from_:tuple[int,int],
             to:tuple[int,int],
-            color=(255, 255, 255)
+            color=(255, 255, 255),
+            width=5
         ):
         
         self.parent = None
         
         # Style
         self.color = color
+        self.width = width
         
         # Position
         self.from_ = from_
@@ -798,11 +801,9 @@ class Line:
         self.layer = 0      # Set in .add()
         self.visible = True
 
-    def setPos(self, from_,to):
-        self.from_ = from_
-        self.to = to
-        self.x = from_[0]
-        self.y = from_[1]
+    def setPos(self, x, y):
+        self.x = x
+        self.y = y
         self.pos = self.x,self.y
         self.abs_x = self.x + self.parent.abs_x
         self.abs_y = self.y + self.parent.abs_y
@@ -903,7 +904,6 @@ class Frame:
         width,
         height
     ):
-        self.children = []
         self.parent = None
         
         # Position
@@ -968,7 +968,7 @@ class Frame:
         self.parent = parent
         self.setPos(self.x, self.y)
         parent.addChild(self)
-        return self
+        # return self
 
 class Root:
     def __init__(
@@ -977,11 +977,14 @@ class Root:
             bg=(100, 100, 100),
             res=(600, 500)
         ):
-        
+        pygame.init()
+        pygame.threads.init(2)
+
         global root
         self.setTitle(title)
         self.res = res
         self.children = []
+        self._customListeners = set()
         
         # Style
         self.bgColor = bg
@@ -1045,6 +1048,10 @@ class Root:
         pygame.display.flip()
         return self
 
+    def remove(self,object):
+        self.children.remove(object)
+        del object
+
     def event(self, event:pygame.event.Event):
         global x, y
         
@@ -1055,18 +1062,22 @@ class Root:
             )
             return
         
-        elif event.type == 1024:
+        elif event.type == 1024: # Mouse move
             x,y = event.dict['pos']
-            return
 
         for child in self.children:
             if hasattr(child,'event') and child.visible:
                 child.event(event)
+        
+        if self._customListeners:
+            for listener in self._customListeners:
+                listener(event)
 
-
+    def addListener(self,listener):
+        self._customListeners.add(listener)
 
 def update():
-    global frame, eventCount
+    global frame, eventCount, root
     try:
         frame += 1
         if frame %2 == 0: root.tick()
@@ -1080,12 +1091,12 @@ def update():
     except Exception as e:
         print(e)
         if debug: raise e
-        return None
+        return
 
 debug = False
 
 def mainloop():
-    while update(): ...
+    while update() and running: ...
 
 
 
