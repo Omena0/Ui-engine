@@ -728,7 +728,7 @@ class Titlebar(Component):
             color=(40,40,40),
             hover_color=(175,60,60),
             corner_radius=5
-        ).add(root,10)
+        ).add(10)
 
         eventHooks.append(self.event)
 
