@@ -723,8 +723,8 @@ class Titlebar(Component):
             25,
             25,
             'X',
-            25,
-            lambda: pygame.quit(),
+            size=25,
+            action=lambda: pygame.quit(),
             color=(40,40,40),
             hover_color=(175,60,60),
             corner_radius=5
