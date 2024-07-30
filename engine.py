@@ -1,219 +1,257 @@
-from pygame._sdl2 import Window as _Window
 from types import FunctionType
 from easing import get_easing
 from threading import Thread
 from copy import copy
 import time as t
 import pygame
-pygame.init()
-pygame.threads.init()
 
+pygame.init()
 clock = pygame.time.Clock()
 
+# Const
+FPS = 60
+use_drag_rectangle = True
 
-# Basic
+# Vars
 running = True
-root   = None
-focus  = None
+root = None
+manager = None
+focus = None
+frame = 0
+tab = 0
+tabCount = 0
 
-# Used events
-usedEvents = [pygame.MOUSEBUTTONDOWN,pygame.MOUSEBUTTONUP,pygame.KEYDOWN,pygame.KEYUP,pygame.MOUSEMOTION,pygame.QUIT,pygame.VIDEORESIZE,pygame.WINDOWMAXIMIZED]
-
-# Mouse pos
-x = 0
-y = 0
-
-# Tabs
-tab  = 0
-tabs = 0
-
-# Counters
-frame = -1  # -1 cuz we increase before we process anything
-a     = 0   # Counter used for testing
+eventHooks = []
 
 def nothing(*args, **kwargs):
     """Does nothing"""
 
+class CustomGroup(pygame.sprite.LayeredDirty):
+    def draw(self, surface):
+        """draw all sprites in the right order onto the passed surface
+
+        LayeredUpdates.draw(surface, special_flags=0): return Rect_list
+
+        """
+        spritedict = self.spritedict
+        dirty = self.lostsprites
+
+        self.lostsprites = []
+
+        init_rect = self._init_rect
+
+        for sprite in self.sprites():
+            rec = spritedict[sprite]
+            newrects = sprite.draw()
+
+            if not isinstance(newrects, list):
+                newrects = [newrects]
+
+            for newrect in newrects:
+                if isinstance(newrect, pygame.Surface):
+                    newrect = newrect.get_rect()
+                if rec is init_rect:
+                    dirty.append(newrect)
+                else:
+                    if newrect.colliderect(rec):
+                        dirty.append(newrect.union(rec))
+                    else:
+                        dirty.append(newrect)
+                        dirty.append(rec)
+                spritedict[sprite] = newrect
+        return dirty
+
+class BasePositionManager:
+    """Base Position manager, used as a context manager where it is able to manage positions of it's children.
+
+       Override the update method to set the positions of the children.
+    """
+    def __init__(self):
+        super().__init__()
+        self.children = []
+
+    def update(self):
+        """Does nothing by default, override this with a method that sets the positions of self.children.
+        """
+    
+    def addChild(self,child):
+        """Add a child to the position manager
+
+        Args:
+            child (Component): The child component to add
+        """
+        self.children.append(child)
+
+    def __enter__(self):
+        global manager
+        if manager: manager.update()
+        self.oldManager = manager
+        manager = self
+        return self
+
+    def __exit__(self, *_):
+        global manager
+        manager = self.oldManager
+        self.update()
+
+group = CustomGroup()
+
 ### COMPONENTS ###
 
-# Dummy parent class, might move some functions here.
-class Component: ...
+class Component(pygame.sprite.DirtySprite):
+    def __init__(self) -> None:
+        super().__init__()
+        self.hovered: bool = False
+        if manager:
+            manager.addChild(self)
+    
+    def checkHover(self) -> bool:
+        x, y = pygame.mouse.get_pos()
+        self.hovered = x in range(int(self.x),int(self.x+self.width)) and y in range(int(self.y),int(self.y+self.height))
+        return self.hovered
+
+    def add(self, layer: int = 0) -> 'Component':
+        self._layer = layer
+        group.add(self)
+        return self
+
+    def setPos(self, x: int, y: int) -> 'Component':
+        self.x = x
+        self.y = y
+        self.pos = x,y
+        self.dirty = 1
+        self.draw()
+        if hasattr(self,'update'): self.update()
+        return self
 
 class Text(Component):
     def __init__(
             self,
-            position,
-            text,
-            size,
-            color=(255, 255, 255),
-            bg_color = None,
+            position:tuple[int,int],
+            text:str,
+            size:int,
+            color=(255,255,255),
             font='Roboto'
         ):
-        
-        self.parent = None
-        
-        # Style
-        self.text:str = text
-        self.size = size
-        self.color = color
-        self.bg_color = bg_color
-        self.font = font
-        
-        # Position
+        super().__init__()
         self.pos = position
         self.x = position[0]
         self.y = position[1]
-        self.abs_pos = self.pos
-        self.abs_x = self.x
-        self.abs_y = self.y
-        
-        # Rendering
-        self.layer = 0
-        self.visible = True
+        self.text = text
+        self.size = size
+        self.color = color
+        self.font = font
 
-    def setPos(self, x, y):
-        self.pos = x, y
-        self.x = x
-        self.y = y
-        self.abs_x = x + self.parent.abs_x
-        self.abs_y = y + self.parent.abs_y
-        self.abs_pos = self.abs_x, self.abs_y
-        self.changed = True
-        return self
-
-    def render(self):
-        if not self.changed: return
+    def draw(self):
         font = pygame.font.SysFont(self.font, self.size)
-        text = font.render(self.text, 1, self.color,self.bg_color)
-        root.disp.blit(text, (self.abs_x, self.abs_y))
-        self.changed = False
 
-    def add(self, parent, layer=0):
-        self.layer = layer
-        self.parent = parent
-        self.setPos(self.x, self.y)
-        parent.addChild(self)
-        return self
+        return root.disp.blit(
+            font.render(self.text, 1, self.color),
+            (self.x,self.y)
+        )
+
+class Area(Component):
+    def __init__(
+            self,
+            position:tuple[int,int],
+            width,
+            height,
+            color=(255,255,255),
+            corner_radius=10
+        ):
+        super().__init__()
+        self.pos = position
+        self.x = position[0]
+        self.y = position[1]
+        self.color = color
+        self.width = width
+        self.height = height
+        self.corner_radius = corner_radius
+
+    def draw(self):
+        return pygame.draw.rect(root.disp,self.color,(self.x,self.y,self.width,self.height),0,self.corner_radius)
 
 class Button(Component):
     def __init__(
             self,
             position:tuple[int,int],
-            width:int,
-            height:int,
-            text:str,
-            size:int,
-            action:FunctionType=nothing,
-            color=(200, 200, 200),
-            hover_color=(150, 150, 150),
-            font_color=(255, 255, 255),
+            width,
+            height,
+            text,
+            color=(60,60,60),
+            hover_color=(70,70,70),
+            text_color=(255,255,255),
+            font='Roboto',
+            size=30,
             corner_radius=10,
-            font='Roboto'
+            action = lambda: ...
         ):
-        self.parent = None
-        
-        # Style
-        self.text = text
-        self.size = size
-        self.width = width
-        self.height = height
-        self.action = action
-        self.color = color
-        self.hoverColor = hover_color
-        self.font_color = font_color
-        self.font = font
-        self.hovered = False
-        self.corner_radius = corner_radius
-        
-        # Position
+        super().__init__()
         self.pos = position
         self.x = position[0]
         self.y = position[1]
-        self.abs_pos = self.pos
-        self.abs_x = self.x
-        self.abs_y = self.y
-        
-        # Rendering
-        self.layer = 0
-        self.visible = True
+        self.width = width
+        self.height = height
+        self.corner_radius = corner_radius
+        self.action = action
 
-    def setPos(self, x, y):
-        self.pos = x, y
-        self.x = x
-        self.y = y
-        self.abs_x = x + self.parent.abs_x
-        self.abs_y = y + self.parent.abs_y
-        self.abs_pos = self.abs_x, self.abs_y
-        self.changed = True
-        return self
+        self.text = text
+        self.color = color
+        self.hover_color = hover_color
+        self.text_color = text_color
+        self.font = font
+        self.size = size
 
-    def checkHovered(self):
-        global x,y
-        self.hovered = (
-            x in range(self.abs_x, self.abs_x + self.width)
-            and y in range(self.abs_y, self.abs_y + self.height)
-        )
-        return self.hovered
+        eventHooks.append(self.event)
 
-    def render(self):
-        if not self.changed: return
-        color = self.color if not self.hovered else self.hoverColor
-        pygame.draw.rect(
+    def draw(self):
+        self.checkHover()
+        # Button rect
+        rect = pygame.draw.rect(
             root.disp,
-            color,
-            (self.abs_x, self.abs_y, self.width, self.height),
-            0,
-            self.corner_radius
+            (self.hover_color if self.hovered else self.color),
+            (self.x, self.y, self.width, self.height),
+            0, self.corner_radius
         )
-        font = pygame.font.SysFont(self.font, self.size)
-        text = font.render(self.text, 1, self.font_color)
-        x = self.abs_x + (self.width - text.get_width()) // 2
-        y = self.abs_y + (self.height - text.get_height()) // 2
-        root.disp.blit(text, (x, y))
-        self.changed = False
-        return self
 
-    def add(self, parent, layer=0):
-        self.layer = layer
-        self.parent = parent
-        self.setPos(self.x, self.y)
-        parent.addChild(self)
-        return self
+        # Button Text
+        rendered = pygame.font.SysFont(
+            self.font, self.size
+        ).render(
+            self.text, 1, self.text_color
+        )
+        
+        text = root.disp.blit(
+            rendered,
+            (self.x+self.width//2-rendered.get_width()//2,self.y+self.height//2-rendered.get_height()//2)
+        )
+        return [rect,text]
 
-    def event(self, event):
-        if event.type == pygame.MOUSEBUTTONUP and self.hovered:
-            event.handled = True
-        if event.type == pygame.MOUSEBUTTONDOWN and self.hovered:
-            event.handled = True
-            self.action()
-
-    def tick(self,frame):
-        # CheckHovered every tick (performance)
-        self.checkHovered()
+    def event(self,event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if self.hovered:
+                self.action()
 
 class Checkbox(Component):
     def __init__(
             self,
-            position,
-            width,
-            height,
+            position:tuple[int,int],
+            width:int,
+            height:int,
             color=(56,56,56),
             hover_color=(70,70,70),
             check_color=(120,120,120),
             corner_radius=3,
             checked:bool=False,
             action:FunctionType=None
-    ):
-        self.parent = None
+        ):
+        super().__init__()
         self.action = action
 
         # Position
         self.pos = position
         self.x = position[0]
         self.y = position[1]
-        self.abs_pos = self.pos
-        self.abs_x = self.x
-        self.abs_y = self.y
         
         # Style
         self.width = width
@@ -225,30 +263,18 @@ class Checkbox(Component):
         self.checked = checked
         self.hovered = False
 
-        # Rendering
-        self.layer = 0
-        self.visible = True
-
-    def setPos(self, x, y):
-        self.pos = x, y
-        self.x = x
-        self.y = y
-        self.abs_x = x + self.parent.abs_x
-        self.abs_y = y + self.parent.abs_y
-        self.abs_pos = self.abs_x, self.abs_y
-        self.changed = True
-        return self
+        eventHooks.append(self.event)
 
     def toggle(self):
         self.checked = not self.checked
         if self.action:
             self.action(self.checked)
 
-    def render(self):
+    def draw(self):
         if not self.changed: return
         color = self.hoverColor if self.hovered else self.color
         
-        pygame.draw.rect(
+        outer_rect = pygame.draw.rect(
             root.disp,
             color,
             (self.abs_x, self.abs_y, self.width, self.height),
@@ -257,36 +283,18 @@ class Checkbox(Component):
         )
 
         if self.checked:
-            pygame.draw.rect(
+            inner_rect = pygame.draw.rect(
                 root.disp,
                 self.checkColor,
                 (self.abs_x+self.width/8, self.abs_y+self.width/8, self.width-self.width/4+1, self.height-self.width/4+1),
                 0,
                 self.corner_radius
             )
-        self.changed = False
-        return self
-
-    def checkHovered(self):
-        global x,y
-        self.hovered = (
-            x in range(self.abs_x, self.abs_x + self.width)
-            and y in range(self.abs_y, self.abs_y + self.height)
-        )
-        return self.hovered
-
-    def add(self, parent, layer=0):
-        self.layer = layer
-        self.parent = parent
-        self.setPos(self.x, self.y)
-        parent.addChild(self)
-        return self
-
-    def tick(self,frame):
-        # CheckHovered every second tick (performance)
-        self.checkHovered()
+            return [outer_rect, inner_rect]
+        return [outer_rect]
 
     def event(self, event):
+        self.checkHover()
         if event.type == pygame.MOUSEBUTTONDOWN and self.hovered:
             event.handled = True
             self.toggle()
@@ -298,16 +306,17 @@ class Textbox(Component):
             width:int,
             height:int,
             size:int,
-            color=(200, 200, 200),
-            focus_color=(175,175,175),
-            hover_color=(150,150,150),
+            color=(75, 75, 75),
+            focus_color=(65,65,65),
+            hover_color=(80,80,80),
             font_color =(255,255,255),
             corner_radius=8,
             font="Roboto",
             text="",
             action=None,
         ):
-        self.parent = None
+        super().__init__()
+        
         self.action = action
         
         # Style
@@ -324,8 +333,8 @@ class Textbox(Component):
         self.hovered = False
         
         # Extra
-        self.repeat_delay = 20
-        self.repeat_interval = 2
+        self.repeat_delay = 200
+        self.repeat_interval = 50
         self.repeat_timer = 0
         self.repeating = False
         self.pressed = ''
@@ -335,68 +344,15 @@ class Textbox(Component):
         self.pos = position
         self.x = position[0]
         self.y = position[1]
-        self.abs_pos = self.pos
-        self.abs_x = self.x
-        self.abs_y = self.y
-        
-        # Rendering
-        self.layer = 0
-        self.visible = True
 
-    def setPos(self, x, y):
-        self.pos = x, y
-        self.x = x
-        self.y = y
-        
-        self.abs_x = x + self.parent.abs_x
-        self.abs_y = y + self.parent.abs_y
-        self.abs_pos = self.abs_x, self.abs_y
-        self.changed = True
-        
-        return self
+        eventHooks.append(self.event)
 
-    def checkHovered(self):
-        global x,y
-        self.hovered = x in range(self.abs_x, self.abs_x + self.width) and y in range(self.abs_y, self.abs_y + self.height)
-        return self.hovered
-
-    def render(self):
+    def draw(self):
         global frame
-        if not self.changed: return
-        
-        # Render
-        color = self.color if self.hovered else self.hoverColor
-        if focus == self: color = self.focusColor
+        self.checkHover()
 
-        pygame.draw.rect(
-            root.disp,
-            color,
-            pygame.Rect(
-                self.abs_x,
-                self.abs_y,
-                self.width,
-                self.height
-            ),
-            0,
-            self.corner_radius
-        )
-        if self.text:
-            font = pygame.font.SysFont(self.font, self.size)
-
-            # Blinking cursor (i love this lmao)
-            a = f'{self.text}|' if focus == self and frame//20 % 2 == 0 else self.text
-            text = font.render(a, 1, self.fontColor)
-
-            x = self.abs_x + 5
-            y = self.abs_y + (self.height - text.get_height()) // 2
-            root.disp.blit(text, (x, y))
-        self.changed = False
-
-    def tick(self,frame):
-        # CheckHovered every second tick (perf)
-        self.checkHovered()
-        # Key repeat timer
-        if self.pressed: self.repeat_timer += 1
+        # Tick
+        if self.pressed: self.repeat_timer += clock.get_time()
         if not self.repeating and self.repeat_timer > self.repeat_delay:
             self.repeating = True
             self.repeat_timer = 0
@@ -419,15 +375,37 @@ class Textbox(Component):
             # Autorepeat calls action :)
             if self.action:
                 self.action(self.text)
+        
+        # Render
+        color = self.color if focus == self else self.focusColor
+        if self.hovered: color = self.hoverColor
 
-        return self
+        # Draw base
+        base = pygame.draw.rect(
+            root.disp,
+            color,
+            pygame.Rect(
+                self.x,
+                self.y,
+                self.width,
+                self.height
+            ),
+            0,
+            self.corner_radius
+        )
 
-    def add(self, parent, layer=0):
-        self.layer = layer
-        self.parent = parent
-        self.setPos(self.x, self.y)
-        parent.addChild(self)
-        return self
+        if self.text:
+            font = pygame.font.SysFont(self.font, self.size)
+
+            # Blinking cursor (i love this lmao)
+            a = f'{self.text}|' if focus == self and frame//20 % 2 == 0 else self.text
+            text = font.render(a, 1, self.fontColor)
+
+            x = self.x + 5
+            y = self.y + (self.height - text.get_height()) // 2
+            root.disp.blit(text, (x, y))
+            return [base,text]
+        return [base]
 
     def event(self, event):
         global focus
@@ -466,7 +444,7 @@ class Image(Component):
             width=None,
             height=None
         ):
-        self.parent = None
+        super().__init__()
 
         # Position
         self.pos = position
@@ -474,50 +452,25 @@ class Image(Component):
         self.y = position[1]
         self.width = width
         self.height = height
-        self.abs_pos = self.pos
-        self.abs_x = self.x
-        self.abs_y = self.y
 
         # Image
         self.image_path = image_path
         self.update_image()
 
-        # Rendering
-        self.layer = 0
-        self.visible = True
-
-    def setPos(self, x, y):
-        self.pos = x, y
-        self.x = x
-        self.y = y
-        
-        self.abs_x = x + self.parent.abs_x
-        self.abs_y = y + self.parent.abs_y
-        self.abs_pos = self.abs_x, self.abs_y
-        self.changed = True
-        return self
+        eventHooks.append(self.event)
 
     def update_image(self):
         self.image = pygame.image.load(self.image_path)
         if not (self.width and self.height): return
         self.image = pygame.transform.smoothscale(self.image,(self.width,self.height))
 
-    def render(self):
-        if not self.changed: return
-        root.disp.blit(self.image, (self.abs_x, self.abs_y))
-        self.changed = False
-        return self
+    def draw(self):
+        rect = root.disp.blit(self.image, (self.x, self.y))
+        return rect
 
     def event(self,event):
         if event.type in (pygame.VIDEORESIZE,pygame.WINDOWMAXIMIZED):
             self.update_image()
-    
-    def add(self, parent, layer=0):
-        self.layer = layer
-        self.parent = parent
-        self.setPos(self.x, self.y)
-        parent.addChild(self)
-        return self
 
 class Progressbar(Component):
     def __init__(
@@ -531,8 +484,7 @@ class Progressbar(Component):
             corner_radius=4,
             speed=0
         ):
-        
-        self.parent = None
+        super().__init__()
         
         # Style
         self.color = color
@@ -544,40 +496,22 @@ class Progressbar(Component):
         self.pos = position
         self.x = position[0]
         self.y = position[1]
-        self.abs_pos = self.pos
-        self.abs_x = self.x
-        self.abs_y = self.y
         self.width = width
         self.height = height
         
-        # Rendering
-        self.layer = 0
-        self.visible = True
-        
         # Progress
         self.progress   = 0              # Progressbar state (0-1)
-        self.max        = 1              # Max (0-1)
-        self.completed  = 0              # Current (0-1)
-        self.speed      = speed/5000    # How much to increase/tick
+        self.max        = 1              # Max
+        self.completed  = 0              # Current progress
+        self.speed      = speed/10000    # How much to increase/tick
         self.started    = False          # Should we increase?
         self.halted     = False          # Should we increase? (if set progress < current progress)
-        self.shouldHalt = True           # Should halt (set externally)
+        self.shouldHalt = True           # Should halt (option)
         self.realProg   = 0              # The last progress value sent to us
         self.tolerance  = 0.3            # Largest difference between prog (smoothed) and realProg can be before we halt
 
-    def setPos(self, x, y):
-        self.pos = x, y
-        self.x = x
-        self.y = y
-        self.abs_x = x + self.parent.abs_x
-        self.abs_y = y + self.parent.abs_y
-        self.abs_pos = self.abs_x, self.abs_y
-        self.changed = True
-        return self
-
-    def tick(self,frame):
-        global a
-
+    def draw(self):
+        # Tick
         if self.started and not self.halted:
             # Dynamically adjust the speed of the progress bar depending on
             # how far away we are from the last datapoint (realProg)
@@ -591,18 +525,16 @@ class Progressbar(Component):
         
         # Run this shit to check if we should halt (for next frame)
         self.setProgress(self.completed,self.max)
-
-    def render(self):
-        if not self.changed: return
         
-        pygame.draw.rect(
+        # Draw
+        rect1 = pygame.draw.rect(
             root.disp,
             self.borderColor,
             pygame.Rect(self.abs_x,self.abs_y,self.width,self.height),
             self.borderRadius,
             self.corner_radius
         )
-        pygame.draw.rect(
+        rect2 = pygame.draw.rect(
             root.disp,
             self.color,
             pygame.Rect(
@@ -615,8 +547,7 @@ class Progressbar(Component):
             self.corner_radius//2
         )
         
-        self.changed = False
-        return self
+        return [rect1,rect2]
     
     def start(self):
         self.started = True
@@ -636,13 +567,6 @@ class Progressbar(Component):
         # only lets you decrease progress if not started.
         self.progress = round(max(self.progress, progress) if self.started else progress,5)
 
-    def add(self, parent, layer=0):
-        self.layer = layer
-        self.parent = parent
-        self.setPos(self.x, self.y)
-        parent.addChild(self)
-        return self
-
 class Slider(Component):
     def __init__(
             self,
@@ -656,8 +580,7 @@ class Slider(Component):
             track_height=4,
             action:FunctionType=None
     ):
-        self.parent = None
-        self.hovered = False
+        super().__init__()
 
         # Style
         self.color = color
@@ -670,9 +593,6 @@ class Slider(Component):
         self.pos = position
         self.x = position[0]
         self.y = position[1]
-        self.abs_pos = self.pos
-        self.abs_x = self.x
-        self.abs_y = self.y
         self.width = width
         self.height = height
 
@@ -681,26 +601,20 @@ class Slider(Component):
         self.pressed = False
         self.action = action
         
-        # Rendering
-        self.layer = 0
-        self.visible = True
+        eventHooks.append(self.event)
 
-    def setPos(self, x, y):
-        self.pos = x, y
-        self.x = x
-        self.y = y
-        self.abs_x = x + self.parent.abs_x
-        self.abs_y = y + self.parent.abs_y
-        self.abs_pos = self.abs_x, self.abs_y
-        self.changed = True
-        return self
+    def draw(self):
+        # Tick
+        self.checkHover()
 
-    def render(self):
-        if not self.changed: return
+        # Track movement
+        if self.pressed:
+            x = pygame.mouse.get_pos()[0]
+            self.setValue((x-self.abs_x)/self.width)
 
         # Draw track
         track_y = self.abs_y + (self.height - self.trackHeight) // 2
-        pygame.draw.rect(
+        track = pygame.draw.rect(
             root.disp,
             self.trackColor,
             pygame.Rect(self.abs_x, track_y, self.width, self.trackHeight)
@@ -711,43 +625,19 @@ class Slider(Component):
 
         # Draw handle
         handle_y = self.abs_y + (self.height - self.handleRadius * 2) // 2
-        pygame.draw.circle(
+        handle = pygame.draw.circle(
             root.disp,
             self.handleColor,
             (int(handle_x + self.handleRadius), int(handle_y + self.handleRadius)),
             self.handleRadius
         )
 
-        self.changed = False
-        return self
-
-    def checkHovered(self):
-        global x,y
-        self.hovered = (
-            x in range(self.abs_x, self.abs_x + self.width)
-            and y in range(self.abs_y, self.abs_y + self.height)
-        )
-        return self.hovered
+        return [track, handle]
 
     def setValue(self, value):
         self.value = max(0, min(value, 1))
         if self.action:
             self.action(self.value)
-
-    def add(self, parent, layer=0):
-        self.layer = layer
-        self.parent = parent
-        self.setPos(self.x, self.y)
-        parent.addChild(self)
-        return self
-
-    def tick(self,frame):
-        # CheckHovered every second tick (performance)
-        self.checkHovered()
-        # Track movement
-        if self.pressed:
-            x = pygame.mouse.get_pos()[0]
-            self.setValue((x-self.abs_x)/self.width)
 
     def event(self, event):
         if event.type == pygame.MOUSEBUTTONDOWN:
@@ -759,68 +649,6 @@ class Slider(Component):
             event.handled = True
             self.pressed = False
 
-class Area(Component):
-    def __init__(
-            self,
-            position,
-            width,
-            height,
-            color=(255, 255, 255),
-            corner_radius=15
-        ):
-        
-        self.parent = None
-        
-        # Style
-        self.color = color
-        self.corner_radius = corner_radius
-        
-        # Position
-        self.pos = position
-        self.x = position[0]
-        self.y = position[1]
-        self.abs_pos = self.pos
-        self.abs_x   = self.x
-        self.abs_y   = self.y
-        self.width   = width
-        self.height  = height
-        
-        # Rendering
-        self.layer = 0
-        self.visible = True
-
-    def setPos(self, x, y):
-        self.pos = x, y
-        self.x = x
-        self.y = y
-        self.abs_x = x + self.parent.abs_x
-        self.abs_y = y + self.parent.abs_y
-        self.abs_pos = self.abs_x, self.abs_y
-        self.changed = True
-        return self
-
-    def render(self):
-        if not self.changed: return
-        
-        pygame.draw.rect(
-            root.disp,
-            self.color,
-            pygame.Rect(
-                self.abs_x,self.abs_y,self.width,self.height
-            ),
-            0,
-            self.corner_radius
-        )
-        self.changed = False
-        return self
-
-    def add(self, parent, layer=0):
-        self.layer = layer
-        self.parent = parent
-        self.setPos(self.x, self.y)
-        parent.addChild(self)
-        return self
-
 class Line(Component):
     def __init__(
             self,
@@ -829,8 +657,7 @@ class Line(Component):
             color=(255, 255, 255),
             width=5
         ):
-        
-        self.parent = None
+        super().__init__()
         
         # Style
         self.color = color
@@ -840,45 +667,20 @@ class Line(Component):
         self.from_ = from_
         self.to    = to
         
-        ## Shit that might have to exist for it to work smh
         self.x       = from_[0]
         self.y       = from_[1]
-        self.abs_pos = from_
-        self.abs_x   = from_[0]
-        self.abs_y   = from_[1]
-        
-        # Rendering
-        self.layer = 0      # Set in .add()
-        self.visible = True
 
-    def setPos(self, x, y):
-        self.x = x
-        self.y = y
-        self.pos = self.x,self.y
-        self.abs_x = self.x + self.parent.abs_x
-        self.abs_y = self.y + self.parent.abs_y
-        self.abs_pos = self.abs_x, self.abs_y
-        self.changed = True
-        return self
-
-    def render(self):
+    def draw(self):
         if not self.changed: return
-        pygame.draw.line(
+        rect = pygame.draw.line(
             root.disp,
             self.color,
             self.from_,
             self.to,
             self.width
         )
-        self.changed = False
-        return self
 
-    def add(self, parent, layer=0):
-        self.layer = layer
-        self.parent = parent
-        self.setPos(self.x, self.y)
-        parent.addChild(self)
-        return self
+        return rect
 
 class Titlebar(Component):
     def __init__(
@@ -890,6 +692,8 @@ class Titlebar(Component):
             size = 25,
             text_position = None
         ):
+        super().__init__()
+
         self.text = text
         self.width = root.disp.get_width()
         self.height = height
@@ -925,14 +729,18 @@ class Titlebar(Component):
             hover_color=(175,60,60),
             corner_radius=5
         ).add(root,10)
-    
-    def setPos(self, x, y):
-        """Does nothing because this is a title bar bruh"""
-    
-    def render(self):
-        if not self.changed: return
+
+        eventHooks.append(self.event)
+
+    def draw(self):
+        # Tick
+        self.checkHover()
+        if pygame.mouse.get_pressed()[0] and self.dragging:
+            pos = root.window.position
+            root.window.position = (pos[0] + root.width - self.dragPoint[0]), (pos[1] + root.height - self.dragPoint[1])
+
         # Bar
-        pygame.draw.rect(
+        bar = pygame.draw.rect(
             root.disp,
             self.color,
             (0,0,root.disp.get_size()[0],self.height),
@@ -944,26 +752,12 @@ class Titlebar(Component):
         
         # Text
         font = pygame.font.SysFont('Roboto',self.size)
-        t = font.render(self.text,1,(255,255,255))
-        root.disp.blit(t,self.textPos)
+        text = font.render(self.text,1,(255,255,255))
+        root.disp.blit(text,self.textPos)
         
         # Close button in __init__
         
-        self.changed = False
-        
-    def checkHovered(self):
-        self.hovered = (
-            x in range(self.abs_x, self.abs_x + self.width)
-            and y in range(self.abs_y, self.abs_y + self.height)
-        )
-        return self.hovered
-    
-    def add(self, parent, layer=0):
-        self.layer = layer
-        self.parent = parent
-        self.setPos(self.x, self.y)
-        parent.addChild(self)
-        return self
+        return [bar,text]
 
     def event(self, event):
         global focus
@@ -979,14 +773,7 @@ class Titlebar(Component):
             self.width = root.disp.get_width()
             self.close.setPos(self.width-27,self.close.y)
 
-    def tick(self,frame):
-        # CheckHovered every tick (performance)
-        self.checkHovered()
-        if pygame.mouse.get_pressed()[0] and self.dragging:
-            pos = root.window.position
-            root.window.position = (pos[0] + x - self.dragPoint[0]), (pos[1] + y - self.dragPoint[1])
-
-class Window(Component):
+class Window(BasePositionManager,Component):
     def __init__(
             self,
             position:tuple[int,int],
@@ -1050,122 +837,9 @@ class Window(Component):
         root.update_all()
         self.quit_ = True
         self.onQuit()
-    
-    def setPos(self, x, y):
-        self.pos = x, y
-        self.x = x
-        self.y = y
-        self.abs_x = x + self.parent.abs_x
-        self.abs_y = y + self.parent.abs_y
-        self.abs_pos = self.abs_x, self.abs_y
-        self.changed = True
-        for child in self.children:
-            child.setPos(child.x,child.y)
-        return self
 
-    def checkHovered(self):
-        self.hovered = (
-            x in range(self.abs_x, self.abs_x + self.width)
-            and y in range(self.abs_y-self.tb_height, self.abs_y-self.tb_height + self.height+self.tb_height)
-        )
-        return self.hovered
-
-    def addChild(self, child):
-        x = max(child.x, self.x)
-        x = min(child.x, self.x + self.width)
-        y = max(child.y, self.y)
-        y = min(child.y, self.y + self.height)
-        child.setPos(x, y)
-        if self.children:
-            for i, c in enumerate(self.children):
-                if child.layer <= c.layer:
-                    self.children.insert(i, child)
-                    break
-            else:
-                self.children.append(child)
-        else:
-            self.children.append(child)
-        return self
-
-    def render(self):
-        if self.changed:
-            ## Title bar
-            color = self.bgFocusedColor if focus == self else self.bgColor
-
-            # Rect
-            pygame.draw.rect(
-                root.disp,
-                (40,40,40),
-                (self.abs_x,self.abs_y-self.tb_height,self.width,self.tb_height),
-                border_top_left_radius=self.corner_radius,
-                border_top_right_radius=self.corner_radius
-            )
-
-            # Text
-            font:pygame.font.Font = pygame.font.SysFont(self.font,25)
-            t = font.render(self.title,1,(255,255,255))
-            root.disp.blit(
-                t,
-                (self.abs_x+10,self.abs_y+5-self.tb_height)
-            )
-
-            ## Window background
-            # Rect
-            pygame.draw.rect(
-                root.disp,
-                color,
-                (self.abs_x,self.abs_y,self.width,self.height),
-                border_bottom_left_radius=self.corner_radius,
-                border_bottom_right_radius=self.corner_radius
-            )
-        
-        # Dragging rectangle
-        if self.dragging and not drag_high_quality:
-            pygame.draw.rect(
-                root.disp,
-                (100,100,100),
-                (x-self.dragPoint[0],y-self.dragPoint[1]-self.tb_height,self.width,self.height+self.tb_height),
-                2,
-                self.corner_radius
-            )
-        
-        for child in self.children:
-            if child.visible and child.changed:
-                child.render()
-        
-        self.changed = False
-
-    def add(self, parent, layer=0):
-        self.layer = layer
-        self.parent = parent
-        self.setPos(self.x, self.y)
-        parent.addChild(self)
-        return self
-
-    def event(self, event):
-        global focus
-
-        for child in self.children:
-            if event.handled: break
-            if hasattr(child,'event') and child.visible:
-                child.event(event)
-
-        if event.type == pygame.MOUSEBUTTONDOWN and self.hovered:
-            event.handled = True
-            self.dragPoint = event.dict['pos'][0]-self.abs_x, event.dict['pos'][1]-self.abs_y
-            if self.dragPoint[1] < 0:
-                self.dragging = True
-            focus = self
-        
-        elif event.type == pygame.MOUSEBUTTONUP:
-            self.dragging = False
-            if self.nextPos:
-                self.setPos(*self.nextPos)
-                for child in self.children:
-                    child.setPos(child.x,child.y)
-
-    def tick(self,frame):
-        # CheckHovered every tick (performance)
+    def draw(self):
+        # Tick
         self.checkHovered()
         if focus == self:
             self.parent.children.remove(self)
@@ -1182,361 +856,170 @@ class Window(Component):
                     p = p.parent
                 else: break
 
-            self.nextPos = (x-self.dragPoint[0]-px,y-self.dragPoint[1]-py)
-            if drag_high_quality: self.setPos(*self.nextPos)
+            self.nextPos = (root.width-self.dragPoint[0]-px,root.height-self.dragPoint[1]-py)
+            if not use_drag_rectangle: self.setPos(*self.nextPos)
 
+        # Rendering
+        ## Title bar
+        color = self.bgFocusedColor if focus == self else self.bgColor
+
+        # Rect
+        bar = pygame.draw.rect(
+            root.disp,
+            (40,40,40),
+            (self.abs_x,self.abs_y-self.tb_height,self.width,self.tb_height),
+            border_top_left_radius=self.corner_radius,
+            border_top_right_radius=self.corner_radius
+        )
+        # Text
+        font:pygame.font.Font = pygame.font.SysFont(self.font,25)
+        text = font.render(self.title,1,(255,255,255))
+        root.disp.blit(text,(self.abs_x+10,self.abs_y+5-self.tb_height))
+        
+        ## Window background
+
+        # Rect
+        bg = pygame.draw.rect(
+            root.disp,
+            color,
+            (self.abs_x,self.abs_y,self.width,self.height),
+            border_bottom_left_radius=self.corner_radius,
+            border_bottom_right_radius=self.corner_radius
+        )
+
+        # Dragging rectangle
+        if self.dragging and use_drag_rectangle:
+            rect = pygame.draw.rect(
+                root.disp,
+                (100,100,100),
+                (root.width-self.dragPoint[0],root.height-self.dragPoint[1]-self.tb_height,self.width,self.height+self.tb_height),
+                2,
+                self.corner_radius
+            )
+            return [bar,bg,rect]
+        return [bar,bg]
+    
+    def update(self):
         for child in self.children:
-            if hasattr(child,'tick'):
-                child.tick(frame)
+            if not hasattr(child,'orig_x'): child.orig_x = child.x
+            if not hasattr(child,'orig_y'): child.orig_y = child.y
 
-    def remove(self,child):
-        self.children.remove(object)
+            child.x += self.x
+            child.y += self.y
 
-class Tab(Component):
+    def event(self, event):
+        global focus
+
+        if event.type == pygame.MOUSEBUTTONDOWN and self.hovered:
+            event.handled = True
+            self.dragPoint = event.dict['pos'][0]-self.abs_x, event.dict['pos'][1]-self.abs_y
+            if self.dragPoint[1] < 0:
+                self.dragging = True
+            focus = self
+        
+        elif event.type == pygame.MOUSEBUTTONUP:
+            self.dragging = False
+            if self.nextPos:
+                self.setPos(*self.nextPos)
+                self.update()
+
+class Tab(BasePositionManager,Component):
     def __init__(self):
-        global tab, tabs
-        self.children = []
-        self.parent = None
-        self.id = tabs
-        tabs += 1
+        super().__init__()
+
+        global tab, tabCount
+        self.id = tabCount
+        tabCount += 1
         
         # Position
         self.x = 0
         self.y = 0
-        self.abs_x = 0
-        self.abs_y = 0
         self.width = root.width
         self.height = root.height
-        
-        # Rendering
-        self.visible = False
-        self.layer = 100
 
-    def event(self, event):
-        event.handled = False
-        for child in self.children:
-            if event.handled: break
-            if hasattr(child,'event') and child.visible:
-                child.event(event)
-
-    def addChild(self, child):
-        child.setPos(child.x,child.y)
-        if self.children:
-            for i, c in enumerate(self.children):
-                if child.layer <= c.layer:
-                    self.children.insert(i, child)
-                    break
-            else:
-                self.children.append(child)
-        else:
-            self.children.append(child)
-        return self
-
-    def tick(self,frame):
+    def draw(self):
         global tab, tabs
         # Set visibility
         self.visible = (tab == self.id)
-        if not self.visible: return
-        
+
         for child in self.children:
-            if hasattr(child,'tick'):
-                child.tick(frame)
+            child.visible = self.visible
+
+        return pygame.Rect(0,0,0,0)
     
-    def setPos(self, x, y):
-        self.pos = x, y
+    def update(self):
+        for child in self.children:
+            
+            if not hasattr(child,'orig_x'): child.orig_x = child.x
+            if not hasattr(child,'orig_y'): child.orig_y = child.y
+
+            child.x += self.x
+            child.y += self.y
+
+class Frame(BasePositionManager,Component):
+    def __init__(self,x,y,width,height):
+        super().__init__()
         self.x = x
         self.y = y
-        self.abs_x = x + self.parent.abs_x
-        self.abs_y = y + self.parent.abs_y
-        self.abs_pos = self.abs_x, self.abs_y
-        self.changed = True
-        for child in self.children:
-            child.setPos(child.x,child.y)
-        return self
-
-    def render(self): 
-        for child in self.children:
-            if child.visible:
-                child.render()
-        self.changed = False
-        return self
-
-    def add(self, parent, layer=0):
-        self.layer = layer
-        self.parent = parent
-        self.setPos(self.x, self.y)
-        parent.addChild(self)
-        return self
-
-class Frame(Component):
-    def __init__(
-        self,
-        position,
-        width,
-        height
-    ):
-        self.children = []
-        self.parent = None
-        
-        # Position
-        self.pos = position
-        self.x = position[0]
-        self.y = position[1]
-        self.abs_pos = self.pos
-        self.abs_x = self.x
-        self.abs_y = self.y
-        self.pos2 = width, height
         self.width = width
         self.height = height
-        
-        # Rendering
-        self.layer = 0
-        self.visible = True
-
-    def setPos(self, x, y):
-        self.pos = x, y
-        self.x = x
-        self.y = y
-        self.abs_x = x + self.parent.abs_x
-        self.abs_y = y + self.parent.abs_y
-        self.abs_pos = self.abs_x, self.abs_y
-        self.changed = True
-        for child in self.children:
-            child.setPos(child.x,child.y)
-        return self
-
-    def event(self, event):
-        event.handled = False
-        for child in self.children:
-            if event.handled: break
-            if hasattr(child,'event') and child.visible:
-                child.event(event)
-
-    def addChild(self, child):
-        x = max(child.x, self.x)
-        x = min(child.x, self.x + self.width)
-        y = max(child.y, self.y)
-        y = min(child.y, self.y + self.height)
-        child.setPos(x, y)
-        if self.children:
-            for i, c in enumerate(self.children):
-                if child.layer <= c.layer:
-                    self.children.insert(i, child)
-                    break
-            else:
-                self.children.append(child)
-        else:
-            self.children.append(child)
-        return self
-
-    def tick(self,frame):
-        for child in self.children:
-            if hasattr(child,'tick'):
-                child.tick(frame)
     
-    def render(self):
+    def draw(self):
+        return 0,0,0,0
+    
+    def update(self):
         for child in self.children:
-            if child.visible and child.changed:
-                child.render()
-        self.changed = False
-        return self
+            
+            if not hasattr(child,'orig_x'): child.orig_x = child.x
+            if not hasattr(child,'orig_y'): child.orig_y = child.y
 
-    def add(self, parent, layer=0):
-        self.layer = layer
-        self.parent = parent
-        self.setPos(self.x, self.y)
-        parent.addChild(self)
-        return self
+            child.x += self.x
+            child.y += self.y
 
-    def remove(self, object):
-        self.children.remove(object)
 
 class Root:
-    def __init__(
-            self,
-            title="",
-            bg=(100, 100, 100),
-            res=(600, 500)
-        ):
-        pygame.init()
-        pygame.threads.init(2)
-
+    def __init__(self,width,height,name='Default Title'):
         global root
-        self.setTitle(title)
-        self.res = res
-        self.children = []
-        self._customEventListeners = set()
-        self._customTickListeners = set()
-        self._customFrameListeners = set()
-        
-        # Style
-        self.bgColor = bg
-        self.width = self.res[0]
-        self.height = self.res[1]
-        self.changed = True
-        
-        self._update_timer = 0
-        
-        # Position (just so parent.x / parent.abs_x works)
-        self.x = 0
-        self.y = 0
-        self.abs_y = 0
-        self.abs_x = 0
-        
+        self.disp = pygame.display.set_mode((width,height),pygame.RESIZABLE)
+        self.width = width
+        self.height = height
+        self.name = name
+
         root = self
-
-    def setTitle(self, title):
-        self.title = title
-        return self
-
-    def setTab(self,tabId):
-        global tab
-        tab = tabId
-
-    def show(self, resizable=True, extraFlag=0):
-        flags = pygame.SCALED | (pygame.RESIZABLE if resizable else 0) | pygame.DOUBLEBUF | extraFlag
-        
-        self.disp = pygame.display.set_mode(
-            self.res, flags=flags
-        )
-        self.window = _Window.from_display_module()
-        
-        self.disp.fill(self.bgColor)
-        
-        return self
     
-    def setPos(self, x, y):
-        self.pos = x, y
-        self.x = x
-        self.y = y
-        self.abs_x = x
-        self.abs_y = y
-        self.abs_pos = self.x, self.y
-        return self
+    def draw(self, surface):
+        pygame.display.set_caption(f'{self.name} - FPS: {round(clock.get_fps(),2)}')
+        self.disp.fill((0,0,0))
+        pygame.display.update(group.draw(surface))
 
-    def addChild(self, child):
-        child.setPos(child.x,child.y)
-        if self.children:
-            for i, c in enumerate(self.children):
-                if child.layer <= c.layer:
-                    self.children.insert(i, child)
-                    break
-            else: self.children.append(child)
-        else: self.children.append(child)
 
-    def tick(self,frame):
-        self.update_all()
-        for child in self.children:
-            if hasattr(child,'tick') and (child.visible or isinstance(child,Tab)):
-                child.tick(frame)
-        if self._customTickListeners:
-            for listener in self._customTickListeners:
-                listener(frame)
-
-    def render(self):
-        pygame.display.set_caption(f'{self.title} | FPS: {clock.get_fps()//1}')
-        for child in self.children:
-            if child.visible:
-                child.render()
-        if self._customFrameListeners:
-            for listener in self._customFrameListeners:
-                listener()
-
-    def remove(self,object):
-        self.children.remove(object)
-        self.update_all()
-        del object
-
-    def event(self, event:pygame.event.Event):
-        global x, y, focus
-        
-        if event.type == pygame.VIDEORESIZE:
-            self.res = event.size
-            self.disp = pygame.display.set_mode(
-                self.res, flags=self.disp.get_flags()
-            )
-            self.update_all()
-            
-        elif event.type == pygame.MOUSEBUTTONDOWN:
-            focus = None
-        
-        elif event.type == pygame.MOUSEMOTION: # Mouse move
-            x,y = event.dict['pos']
-
-        event.handled = False
-        for child in self.children:
-            if debug_events: print(f'Child name: {child.__name__}\nEvent: {event}\nHandled: {event.handled}\n')
-            if event.handled: break
-            if hasattr(child,'event') and child.visible:
-                child.event(event)
-        
-        if self._customEventListeners:
-            for listener in self._customEventListeners:
-                listener(event)
-
-    def addFrameListener(self,listener:FunctionType):
-        self._customFrameListeners.add(listener)
-
-    def addEventListener(self,listener:FunctionType):
-        self._customEventListeners.add(listener)
-
-    def addTickListener(self,listener:FunctionType):
-        self._customTickListeners.add(listener)
-
-    def update_all(self):
-        global count
-        count = 0
-        def update(object):
-            global count
-            object.changed = True
-            if hasattr(object,'children'):
-                for child in object.children:
-                    update(child)
-                    count += 1
-
-        update(self)
-        print(count)
-
-    def wait_for_frame(self):
-        global frame
-        f = copy(frame)
-        while f == frame: t.sleep(0.001)
-
+running = True
 
 def update():
-    global frame, root
-    try:
-        frame += 1
-        if frame % 5 == 0:
-            root.tick(frame)
-        root.render()
-        for event in pygame.event.get(usedEvents):
-            if event.type == pygame.QUIT:
-                pygame.quit()
-            root.event(event)
-        
-        clock.tick()
-        
-        pygame.display.flip()
-        return root
-    except pygame.error as e:
-        if e == 'display surface quit': return
-        else:
-            print(e)
-            if debug: raise e
-        return
+    global running, frame
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+            return False
+        elif event.type == pygame.VIDEORESIZE:
+            pygame.display.update()
+        for hook in eventHooks:
+            hook(event)
+    
+    root.disp.fill((0,0,0))
+    root.draw(root.disp)
+    
+    clock.tick(FPS)
+    frame += 1
 
-    except Exception as e:
-        print(e)
-        if debug: raise e
-        return
+    return True
 
 ### ANIMATIONS ###
 
 class Animation:
     def __init__(
             self,
-            component:Component,
+            component,
             length,
             endPos,
             easing,
@@ -1548,17 +1031,21 @@ class Animation:
         self.startPos = copy(component.pos)
         self.endPos = endPos
         self.easing = easing
+        self.running = False
         
         self.easer = Easer(self.length,get_easing(easing,ease_in,ease_out))
     
     def start(self):
         Thread(target=self.start_blocking).start()
+        return self
     
     def start_blocking(self):
         print(self.startPos,self.endPos)
+        self.running = True
         for i in self.easer:
             try: i = next(i)+0.0001
             except StopIteration: break
+            
 
 
             x = abs(self.startPos[0] - abs(self.endPos[0] - self.startPos[0]) * i)
@@ -1568,6 +1055,7 @@ class Animation:
             self.component.setPos(round(x),round(y))
             if not running: break
             t.sleep(1/120)
+        self.running = False
 
 class Easer:
     def __init__(self,length:int,easing_function:FunctionType):
@@ -1588,10 +1076,9 @@ class Easer:
 
 ### LAYOUT MANAGER ###
 
-
-
-class LayoutManager():
+class LayoutManager(BasePositionManager, Component):
     def __init__(self,x,y,width,height,padding):
+        super().__init__()
         self.x = x
         self.y = y
         self.width = width - padding
@@ -1600,74 +1087,48 @@ class LayoutManager():
         self.setPos(x+padding,y+padding)
         self.screen_width = root.width
         self.screen_height = root.height
-        root.addEventListener(self.event)
+
+        # Hook events
+        eventHooks.append(self.event)
+
+    def draw(self):
+        return 0,0,0,0
+
+    def event(self,event):
+        if event.type == pygame.VIDEORESIZE:
+            self.width += event.dict['w'] - self.screen_width
+            self.height += event.dict['h'] - self.screen_height
+            self.width = abs(self.width)
+            self.height = abs(self.height)
+
+            self.screen_width = event.dict['w']
+            self.screen_height = event.dict['h']
+            self.update()
 
     def setPos(self,x,y):
         self.x = x
         self.y = y
         if hasattr(self,'frame'): self.frame.setPos(x,y)
 
-    def add(self,parent,layer=1):
-        self.parent = parent
-        self.layer  = layer
-        return self
-
-    def __enter__(self):
-        global root
-        self.old_root = root
-        root = Frame((self.x,self.y),self.width,self.height).add(self.parent,self.layer)
-        root.addEventListener = self.old_root.addEventListener
-        self.frame = root
-
-    def __exit__(self, *_):
-        global root
-        root = self.old_root
-        self.update()
-    
-    def event(self,event):
-        if event.type == pygame.VIDEORESIZE:
-            self.width += event.dict['w'] - self.screen_width
-            self.height += event.dict['h'] - self.screen_height
-            self.frame.width = abs(self.width)
-            self.frame.height = abs(self.height)
-
-            self.screen_width = event.dict['w']
-            self.screen_height = event.dict['h']
-            self.update()
-            root.update_all()
-
     def update(self):
         totalX = 0
-        totalY = [0 for _ in range(self.screen_height)]
-        for i,child in enumerate(self.frame.children):
+        largestY = 0
+        for i,child in enumerate(self.children):
             if not hasattr(child,'orig_x'): child.orig_x = child.x
             if not hasattr(child,'orig_y'): child.orig_y = child.y
             totalX += child.orig_x
-            totalY[i] += child.orig_y
-        
+            largestY = max(largestY,child.orig_y)
+
         x = 0
         y = 0
-        for i,child in enumerate(self.frame.children):
+        for i,child in enumerate(self.children):
+            child.width  = abs(self.width  / (totalX / child.orig_x) - self.padding)
+            child.height = abs(self.height / (largestY / child.orig_y) - self.padding)
 
-            child.width  = abs(self.frame.width /(totalX   /(child.orig_x))-self.padding)
-            child.height = abs(self.frame.height/(totalY[i]/(child.orig_y))-self.padding)
+            print(f'{str(child):<50}: {round(x):<4}, {round(y):<4} - {round(child.width):<4}, {round(child.height):<4}')
 
-            print(f'{str(child):50}: {round(x):4}, {round(y):4} - {round(child.width):4}, {round(child.height):4}')
-
-            child.setPos(abs(round(x)),abs(round(y)))
+            child.setPos(abs(round(x+self.x)),abs(round(y+self.y)))
+            if isinstance(child,Image): child.update_image()
             x += child.width + self.padding
-        
 
-
-# Raise any exception caught
-debug = True
-
-# Display event debug information
-debug_events = False
-
-# Makes the dragging thing a rectangle kinda like in windows with the setting off
-drag_high_quality = False
-
-def mainloop():
-    while update() and running: Ellipsis
 
