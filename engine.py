@@ -47,7 +47,7 @@ class Text(Component):
             size,
             color=(255, 255, 255),
             bg_color = None,
-            font='Roboto'
+            font=None
         ):
         
         self.parent = None
@@ -108,7 +108,7 @@ class Button(Component):
             hover_color=(150, 150, 150),
             font_color=(255, 255, 255),
             corner_radius=10,
-            font='Roboto'
+            font=None
         ):
         self.parent = None
         
@@ -303,7 +303,7 @@ class Textbox(Component):
             hover_color=(150,150,150),
             font_color =(255,255,255),
             corner_radius=8,
-            font="Roboto",
+            font=None,
             text="",
             action=None,
         ):
@@ -943,7 +943,7 @@ class Titlebar(Component):
         )
         
         # Text
-        font = pygame.font.SysFont('Roboto',self.size)
+        font = pygame.font.SysFont(None,self.size)
         t = font.render(self.text,1,(255,255,255))
         root.disp.blit(t,self.textPos)
         
@@ -997,7 +997,7 @@ class Window(Component):
             corner_radius=5,
             color=(45, 45, 45),
             bg_focused_color=(50, 50, 50),
-            font='Roboto',
+            font=None,
             on_quit:FunctionType=nothing
         ):
         self.parent = None
